@@ -1,0 +1,70 @@
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  api:
+    name: api (sqlite)
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: apps/api } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
+      - run: uv venv && uv pip install -r pyproject.toml pytest httpx ruff "moto[server]"
+      - run: uv run ruff check app tests alembic
+      - run: uv run pytest -q
+      - name: S3 integration (moto)
+        run: |
+          uv run moto_server -p 19000 &
+          sleep 3
+          S3_TEST_ENDPOINT=http://127.0.0.1:19000 uv run pytest -q tests/test_s3_integration.py
+
+  api-mysql:
+    name: api (mysql 8.4 + alembic)
+    runs-on: ubuntu-latest
+    defaults: { run: { working-directory: apps/api } }
+    services:
+      mysql:
+        image: mysql:8.4
+        env: { MYSQL_ROOT_PASSWORD: root, MYSQL_DATABASE: myvdream }
+        ports: ["3306:3306"]
+        options: --health-cmd "mysqladmin ping -h localhost -proot" --health-interval 5s --health-retries 20
+    env:
+      DATABASE_URL: mysql+pymysql://root:root@127.0.0.1:3306/myvdream?charset=utf8mb4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with: { enable-cache: true }
+      - run: uv venv && uv pip install -r pyproject.toml pytest httpx
+      - run: uv run alembic upgrade head
+      - run: uv run alembic check   # 모델과 마이그레이션이 어긋나면 실패
+      - run: uv run pytest -q
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm, cache-dependency-path: apps/web/package-lock.json }
+      - uses: astral-sh/setup-uv@v5
+      - run: npm ci --no-audit --no-fund
+        working-directory: apps/web
+      - name: OpenAPI 타입 생성물 일치 검사
+        run: |
+          (cd apps/api && uv venv && uv pip install -r pyproject.toml)
+          PYTHON=apps/api/.venv/bin/python bash scripts/generate-types.sh
+          git diff --exit-code apps/web/openapi.json apps/web/src/api-schema.d.ts
+      - run: npx tsc --noEmit
+        working-directory: apps/web
+      - run: npx vitest run
+        working-directory: apps/web
+      - run: npm run build
+        working-directory: apps/web
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t api-check apps/api && docker build -t web-check apps/web

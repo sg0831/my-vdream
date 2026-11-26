@@ -1,0 +1,7 @@
+# 개발: MySQL만 컨테이너로 (API·웹은 호스트에서 실행). SQLite로도 개발 가능
+services:
+  mysql:
+    image: mysql:8.4
+    environment: { MYSQL_ROOT_PASSWORD: root, MYSQL_DATABASE: myvdream, MYSQL_USER: myvdream, MYSQL_PASSWORD: myvdream }
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
+    ports: ["3306:3306"]

@@ -1,0 +1,39 @@
+# 운영: EC2 1대. 이미지는 GitHub Actions가 GHCR에 올린다 (기술스펙 11.4)
+services:
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports: ["80:80", "443:443"]
+    environment: { DOMAIN: "${DOMAIN}" }
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - web_dist:/srv/web:ro
+      - caddy_data:/data
+    depends_on: [api, web-build]
+  api:
+    image: ghcr.io/${GH_OWNER}/my-vdream-api:${IMAGE_TAG:-latest}
+    restart: unless-stopped
+    env_file: ../.env
+    environment:
+      DATABASE_URL: mysql+pymysql://${MYSQL_USER}:${MYSQL_PASSWORD}@mysql:3306/${MYSQL_DATABASE}?charset=utf8mb4
+    depends_on:
+      mysql: { condition: service_healthy }
+  web-build:
+    image: ghcr.io/${GH_OWNER}/my-vdream-web:${IMAGE_TAG:-latest}
+    volumes: [web_dist:/srv/web]
+  mysql:
+    image: mysql:8.4
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
+      TZ: UTC
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_0900_ai_ci"]
+    volumes: [mysql_data:/var/lib/mysql]
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 5s
+      retries: 20
+volumes: { web_dist: {}, caddy_data: {}, mysql_data: {} }

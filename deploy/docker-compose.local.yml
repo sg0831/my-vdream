@@ -1,0 +1,10 @@
+# 운영 구성을 로컬에서 그대로 띄워 보는 오버라이드. HTTP 8088, 로컬 빌드 이미지, 로컬 파일 저장.
+# 사용: docker compose --env-file deploy/local.env -f deploy/docker-compose.yml -f deploy/docker-compose.local.yml up -d --build
+services:
+  caddy:
+    ports: !override ["8088:80"]
+  api:
+    build: ../apps/api
+    env_file: !override [local.env]
+  web-build:
+    build: ../apps/web
